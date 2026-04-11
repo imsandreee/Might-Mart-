@@ -3,8 +3,17 @@ import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Plus, Edit, Trash2, X, Search, Users } from 'lucide-react';
 import logo from '../assets/logo.png';
 
-const EMPTY_FORM = { id: null, name: '', role: '', department: '' };
+const EMPTY_FORM = { 
+  id: null, 
+  name: '', 
+  role: '', 
+  department: '', 
+  shift_start: '09:00', 
+  shift_end: '17:00', 
+  work_days: 'Mon,Tue,Wed,Thu,Fri' 
+};
 const DEPARTMENTS = ['Sales', 'Inventory', 'Operations', 'Security', 'Management'];
+const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
 export default function EmployeeCrud({ hideHeader = false }) {
   const navigate = useNavigate();
@@ -39,8 +48,48 @@ export default function EmployeeCrud({ hideHeader = false }) {
   };
 
   const openAddModal = () => { setForm(EMPTY_FORM); setShowModal(true); };
-  const openEditModal = (emp) => { setForm({ id: emp.id, name: emp.name, role: emp.role, department: emp.department }); setShowModal(true); };
+  const openEditModal = (emp) => { 
+    setForm({ 
+      id: emp.id, 
+      name: emp.name, 
+      role: emp.role, 
+      department: emp.department,
+      shift_start: emp.shift_start ? emp.shift_start.slice(0, 5) : '09:00',
+      shift_end: emp.shift_end ? emp.shift_end.slice(0, 5) : '17:00',
+      work_days: emp.work_days || 'Mon,Tue,Wed,Thu,Fri'
+    }); 
+    setShowModal(true); 
+  };
   const closeModal = () => { setShowModal(false); setForm(EMPTY_FORM); };
+
+  const handleDayToggle = (day) => {
+    const days = form.work_days.split(',').filter(d => d);
+    if (days.includes(day)) {
+      setForm({ ...form, work_days: days.filter(d => d !== day).join(',') });
+    } else {
+      // Keep order
+      const newDays = WEEKDAYS.filter(d => days.includes(d) || d === day).join(',');
+      setForm({ ...form, work_days: newDays });
+    }
+  };
+
+  const confirmDeleteEmployee = async (id, name) => {
+    if (!window.confirm(`Are you sure you want to delete ${name}?`)) return;
+
+    try {
+      const res = await fetch(`http://localhost:5000/api/employees/${id}`, { 
+        method: 'DELETE', 
+        headers: authHeader() 
+      });
+      
+      if (!res.ok) throw new Error(`Server error: ${res.status}`);
+      
+      fetchEmployees();
+    } catch (err) { 
+      console.error('Delete error:', err);
+      alert('Error: ' + err.message);
+    }
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -63,14 +112,6 @@ export default function EmployeeCrud({ hideHeader = false }) {
       fetchEmployees();
     } catch (err) { console.error(err); }
     setSaving(false);
-  };
-
-  const handleDelete = async (id, name) => {
-    if (!window.confirm(`Delete ${name}? This cannot be undone.`)) return;
-    try {
-      await fetch(`http://localhost:5000/api/employees/${id}`, { method: 'DELETE', headers: authHeader() });
-      fetchEmployees();
-    } catch (err) { console.error(err); }
   };
 
   const deptColor = { Sales: '#CC1111', Inventory: '#1a9c3e', Operations: '#2563eb', Security: '#7c3aed', Management: '#b45309' };
@@ -171,7 +212,8 @@ export default function EmployeeCrud({ hideHeader = false }) {
                         style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', padding: '0.35rem 0.75rem', border: '1.5px solid #e5e7eb', borderRadius: '6px', background: 'white', cursor: 'pointer', fontSize: '0.78rem', fontWeight: 600, fontFamily: 'inherit' }}>
                         <Edit size={13} /> Edit
                       </button>
-                      <button onClick={() => handleDelete(emp.id, emp.name)}
+                      <button 
+                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); confirmDeleteEmployee(emp.id, emp.name); }}
                         style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', padding: '0.35rem 0.75rem', border: '1.5px solid #fecaca', borderRadius: '6px', background: '#fef2f2', color: '#CC1111', cursor: 'pointer', fontSize: '0.78rem', fontWeight: 600, fontFamily: 'inherit' }}>
                         <Trash2 size={13} /> Delete
                       </button>
@@ -214,6 +256,48 @@ export default function EmployeeCrud({ hideHeader = false }) {
                     <option value="">Select Department</option>
                     {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
                   </select>
+                </div>
+
+                <div style={{ padding: '1rem', background: '#f9fafb', borderRadius: '8px', border: '1px solid #e5e7eb', marginBottom: '1.5rem' }}>
+                  <h4 style={{ fontSize: '0.75rem', fontWeight: 800, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    Schedule Management
+                  </h4>
+                  <div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem' }}>
+                    <div style={{ flex: 1 }}>
+                      <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 700, color: '#4b5563', marginBottom: '0.25rem' }}>Shift Start</label>
+                      <input type="time" required className="input-base" style={{ padding: '0.4rem' }} value={form.shift_start} onChange={e => setForm({ ...form, shift_start: e.target.value })} />
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 700, color: '#4b5563', marginBottom: '0.25rem' }}>Shift End</label>
+                      <input type="time" required className="input-base" style={{ padding: '0.4rem' }} value={form.shift_end} onChange={e => setForm({ ...form, shift_end: e.target.value })} />
+                    </div>
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 700, color: '#4b5563', marginBottom: '0.5rem' }}>Work Days</label>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
+                      {WEEKDAYS.map(day => (
+                        <button
+                          key={day}
+                          type="button"
+                          onClick={() => handleDayToggle(day)}
+                          style={{
+                            padding: '0.3rem 0.6rem',
+                            borderRadius: '4px',
+                            fontSize: '0.7rem',
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                            border: '1.5px solid',
+                            transition: 'all 0.1s',
+                            background: form.work_days.split(',').includes(day) ? '#CC1111' : 'white',
+                            borderColor: form.work_days.split(',').includes(day) ? '#CC1111' : '#e5e7eb',
+                            color: form.work_days.split(',').includes(day) ? 'white' : '#6b7280'
+                          }}
+                        >
+                          {day}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 </div>
                 <div style={{ display: 'flex', gap: '0.75rem' }}>
                   <button type="button" onClick={closeModal}
