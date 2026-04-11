@@ -60,7 +60,12 @@ app.post('/api/auth/login', async (req, res) => {
 // ─── EMPLOYEES ROUTES ──────────────────────────────────────
 app.get('/api/employees', async (req, res) => {
     try {
-        const [rows] = await db.query('SELECT * FROM employees ORDER BY name');
+        const [rows] = await db.query(`
+            SELECT e.*, s.shift_start, s.shift_end, s.work_days
+            FROM employees e
+            LEFT JOIN schedules s ON e.id = s.employee_id
+            ORDER BY e.name
+        `);
         res.json(rows);
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -69,17 +74,20 @@ app.get('/api/employees', async (req, res) => {
 
 app.post('/api/employees', authenticateAdmin, async (req, res) => {
     try {
-        const { name, role, department } = req.body;
+        const { name, role, department, shift_start, shift_end, work_days } = req.body;
         const [result] = await db.query(
             'INSERT INTO employees (name, role, department) VALUES (?, ?, ?)',
             [name, role, department]
         );
-        // Auto-create a default schedule for new employees
+        const employeeId = result.insertId;
+        
+        // Create schedule for new employee
         await db.query(
-            "INSERT IGNORE INTO schedules (employee_id, shift_start, shift_end, work_days) VALUES (?, '09:00:00', '17:00:00', 'Mon,Tue,Wed,Thu,Fri')",
-            [result.insertId]
+            "INSERT INTO schedules (employee_id, shift_start, shift_end, work_days) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE shift_start=?, shift_end=?, work_days=?",
+            [employeeId, shift_start || '09:00:00', shift_end || '17:00:00', work_days || 'Mon,Tue,Wed,Thu,Fri', shift_start, shift_end, work_days]
         );
-        res.status(201).json({ id: result.insertId, name, role, department });
+        
+        res.status(201).json({ id: employeeId, name, role, department });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -87,11 +95,21 @@ app.post('/api/employees', authenticateAdmin, async (req, res) => {
 
 app.put('/api/employees/:id', authenticateAdmin, async (req, res) => {
     try {
-        const { name, role, department } = req.body;
+        const { name, role, department, shift_start, shift_end, work_days } = req.body;
+        const employeeId = req.params.id;
+
         await db.query(
             'UPDATE employees SET name=?, role=?, department=? WHERE id=?',
-            [name, role, department, req.params.id]
+            [name, role, department, employeeId]
         );
+
+        // Update or insert schedule
+        await db.query(`
+            INSERT INTO schedules (employee_id, shift_start, shift_end, work_days)
+            VALUES (?, ?, ?, ?)
+            ON DUPLICATE KEY UPDATE shift_start=?, shift_end=?, work_days=?
+        `, [employeeId, shift_start, shift_end, work_days, shift_start, shift_end, work_days]);
+
         res.json({ success: true });
     } catch (err) {
         res.status(500).json({ error: err.message });
