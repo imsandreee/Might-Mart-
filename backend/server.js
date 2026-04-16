@@ -4,12 +4,30 @@ require('dotenv').config();
 const db = require('./db');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
 
 const app = express();
 const JWT_SECRET = process.env.JWT_SECRET || 'mighteemart_secret';
 
 app.use(cors());
 app.use(express.json());
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+// ─── MULTER CONFIGURATION ──────────────────────────────────
+const storage = multer.diskStorage({
+    destination: (req, file, cb) => {
+        const type = req.query.type === 'attendance' ? 'attendance' : 'profiles';
+        const dir = `uploads/${type}`;
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+        cb(null, dir);
+    },
+    filename: (req, file, cb) => {
+        cb(null, Date.now() + path.extname(file.originalname));
+    }
+});
+const upload = multer({ storage });
 
 // ─── ERROR HANDLING & LOGGING ──────────────────────────────
 process.on('unhandledRejection', (reason, promise) => {
@@ -72,14 +90,30 @@ app.get('/api/employees', async (req, res) => {
     }
 });
 
-app.post('/api/employees', authenticateAdmin, async (req, res) => {
+app.get('/api/employees/barcode/:barcode', async (req, res) => {
+    try {
+        const [rows] = await db.query('SELECT * FROM employees WHERE barcode = ?', [req.params.barcode]);
+        if (rows.length === 0) return res.status(404).json({ error: 'Employee not found' });
+        res.json(rows[0]);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.post('/api/employees', authenticateAdmin, upload.single('photo'), async (req, res) => {
     try {
         const { name, role, department, shift_start, shift_end, work_days } = req.body;
+        const photo_url = req.file ? `/uploads/profiles/${req.file.filename}` : null;
+        
         const [result] = await db.query(
-            'INSERT INTO employees (name, role, department) VALUES (?, ?, ?)',
-            [name, role, department]
+            'INSERT INTO employees (name, role, department, photo_url) VALUES (?, ?, ?, ?)',
+            [name, role, department, photo_url]
         );
         const employeeId = result.insertId;
+        
+        // Generate a barcode (e.g., EMP + ID)
+        const barcode = `EMP${employeeId.toString().padStart(4, '0')}`;
+        await db.query('UPDATE employees SET barcode = ? WHERE id = ?', [barcode, employeeId]);
         
         // Create schedule for new employee
         await db.query(
@@ -87,21 +121,29 @@ app.post('/api/employees', authenticateAdmin, async (req, res) => {
             [employeeId, shift_start || '09:00:00', shift_end || '17:00:00', work_days || 'Mon,Tue,Wed,Thu,Fri', shift_start, shift_end, work_days]
         );
         
-        res.status(201).json({ id: employeeId, name, role, department });
+        res.status(201).json({ id: employeeId, name, role, department, barcode, photo_url });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
 
-app.put('/api/employees/:id', authenticateAdmin, async (req, res) => {
+app.put('/api/employees/:id', authenticateAdmin, upload.single('photo'), async (req, res) => {
     try {
         const { name, role, department, shift_start, shift_end, work_days } = req.body;
         const employeeId = req.params.id;
+        let query = 'UPDATE employees SET name=?, role=?, department=?';
+        let params = [name, role, department];
 
-        await db.query(
-            'UPDATE employees SET name=?, role=?, department=? WHERE id=?',
-            [name, role, department, employeeId]
-        );
+        if (req.file) {
+            const photo_url = `/uploads/profiles/${req.file.filename}`;
+            query += ', photo_url=?';
+            params.push(photo_url);
+        }
+
+        query += ' WHERE id=?';
+        params.push(employeeId);
+
+        await db.query(query, params);
 
         // Update or insert schedule
         await db.query(`
@@ -186,9 +228,11 @@ app.get('/api/attendance/today', async (req, res) => {
     }
 });
 
-app.post('/api/attendance/check-in', async (req, res) => {
+app.post('/api/attendance/check-in', upload.single('photo'), async (req, res) => {
     try {
         const { employee_id, score } = req.body;
+        const captured_photo = req.file ? `/uploads/attendance/${req.file.filename}` : null;
+
         const [existing] = await db.query(
             'SELECT * FROM attendance WHERE employee_id=? AND date=CURDATE()',
             [employee_id]
@@ -211,18 +255,19 @@ app.post('/api/attendance/check-in', async (req, res) => {
         const status = nowMs > shiftStartMs + 15 ? 'late' : 'present';
 
         const [result] = await db.query(
-            "INSERT INTO attendance (employee_id, date, check_in, status, productivity_score) VALUES (?, CURDATE(), NOW(), ?, ?)",
-            [employee_id, status, score || 0]
+            "INSERT INTO attendance (employee_id, date, check_in, status, productivity_score, captured_photo) VALUES (?, CURDATE(), NOW(), ?, ?, ?)",
+            [employee_id, status, score || 0, captured_photo]
         );
-        res.json({ success: true, id: result.insertId, status });
+        res.json({ success: true, id: result.insertId, status, captured_photo });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
 
-app.post('/api/attendance/check-out', async (req, res) => {
+app.post('/api/attendance/check-out', upload.single('photo'), async (req, res) => {
     try {
         const { employee_id } = req.body;
+        const captured_photo = req.file ? `/uploads/attendance/${req.file.filename}` : null;
 
         // Get the check_in time and schedule
         const [records] = await db.query(
@@ -257,11 +302,12 @@ app.post('/api/attendance/check-out', async (req, res) => {
             SET check_out = NOW(),
                 hours_worked = ?,
                 overtime_hours = ?,
-                productivity_score = ?
+                productivity_score = ?,
+                captured_photo = COALESCE(?, captured_photo)
             WHERE employee_id=? AND date=CURDATE() AND check_out IS NULL
-        `, [hoursWorked, overtimeHours, productivity, employee_id]);
+        `, [hoursWorked, overtimeHours, productivity, captured_photo, employee_id]);
 
-        res.json({ success: true, hours_worked: hoursWorked, overtime_hours: overtimeHours, productivity_score: productivity });
+        res.json({ success: true, hours_worked: hoursWorked, overtime_hours: overtimeHours, productivity_score: productivity, captured_photo: captured_photo || record.captured_photo });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }

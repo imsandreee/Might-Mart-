@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Plus, Edit, Trash2, X, Search, Users } from 'lucide-react';
+import { ArrowLeft, Plus, Edit, Trash2, X, Search, Users, Camera, Barcode as BarcodeIcon } from 'lucide-react';
+import Barcode from 'react-barcode';
 import logo from '../assets/logo.png';
 
 const EMPTY_FORM = { 
@@ -10,7 +11,8 @@ const EMPTY_FORM = {
   department: '', 
   shift_start: '09:00', 
   shift_end: '17:00', 
-  work_days: 'Mon,Tue,Wed,Thu,Fri' 
+  work_days: 'Mon,Tue,Wed,Thu,Fri',
+  photo_url: null
 };
 const DEPARTMENTS = ['Sales', 'Inventory', 'Operations', 'Security', 'Management'];
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -23,10 +25,12 @@ export default function EmployeeCrud({ hideHeader = false }) {
   const [deptFilter, setDeptFilter] = useState('All');
   const [showModal, setShowModal] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
+  const [photoFile, setPhotoFile] = useState(null);
+  const [photoPreview, setPhotoPreview] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [showBarcode, setShowBarcode] = useState(null); // stores employee for barcode view
 
   const authHeader = () => ({
-    'Content-Type': 'application/json',
     'Authorization': `Bearer ${localStorage.getItem('admin_token')}`
   });
 
@@ -47,7 +51,7 @@ export default function EmployeeCrud({ hideHeader = false }) {
     } catch (err) { console.error(err); }
   };
 
-  const openAddModal = () => { setForm(EMPTY_FORM); setShowModal(true); };
+  const openAddModal = () => { setForm(EMPTY_FORM); setPhotoFile(null); setPhotoPreview(null); setShowModal(true); };
   const openEditModal = (emp) => { 
     setForm({ 
       id: emp.id, 
@@ -56,11 +60,14 @@ export default function EmployeeCrud({ hideHeader = false }) {
       department: emp.department,
       shift_start: emp.shift_start ? emp.shift_start.slice(0, 5) : '09:00',
       shift_end: emp.shift_end ? emp.shift_end.slice(0, 5) : '17:00',
-      work_days: emp.work_days || 'Mon,Tue,Wed,Thu,Fri'
+      work_days: emp.work_days || 'Mon,Tue,Wed,Thu,Fri',
+      photo_url: emp.photo_url
     }); 
+    setPhotoPreview(emp.photo_url ? `http://localhost:5000${emp.photo_url}` : null);
+    setPhotoFile(null);
     setShowModal(true); 
   };
-  const closeModal = () => { setShowModal(false); setForm(EMPTY_FORM); };
+  const closeModal = () => { setShowModal(false); setForm(EMPTY_FORM); setPhotoFile(null); setPhotoPreview(null); };
 
   const handleDayToggle = (day) => {
     const days = form.work_days.split(',').filter(d => d);
@@ -95,23 +102,41 @@ export default function EmployeeCrud({ hideHeader = false }) {
     e.preventDefault();
     setSaving(true);
     try {
-      if (form.id) {
-        await fetch(`http://localhost:5000/api/employees/${form.id}`, {
-          method: 'PUT',
-          headers: authHeader(),
-          body: JSON.stringify(form)
-        });
-      } else {
-        await fetch('http://localhost:5000/api/employees', {
-          method: 'POST',
-          headers: authHeader(),
-          body: JSON.stringify(form)
-        });
-      }
+      const formData = new FormData();
+      Object.keys(form).forEach(key => {
+        if (form[key] !== null) formData.append(key, form[key]);
+      });
+      if (photoFile) formData.append('photo', photoFile);
+
+      const url = form.id 
+        ? `http://localhost:5000/api/employees/${form.id}`
+        : 'http://localhost:5000/api/employees';
+      
+      const method = form.id ? 'PUT' : 'POST';
+
+      const res = await fetch(url, {
+        method,
+        headers: { 'Authorization': `Bearer ${localStorage.getItem('admin_token')}` },
+        body: formData
+      });
+
+      if (!res.ok) throw new Error('Failed to save employee');
+
       closeModal();
       fetchEmployees();
-    } catch (err) { console.error(err); }
+    } catch (err) { 
+      console.error(err); 
+      alert(err.message);
+    }
     setSaving(false);
+  };
+
+  const handlePhotoChange = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      setPhotoFile(file);
+      setPhotoPreview(URL.createObjectURL(file));
+    }
   };
 
   const deptColor = { Sales: '#CC1111', Inventory: '#1a9c3e', Operations: '#2563eb', Security: '#7c3aed', Management: '#b45309' };
@@ -190,9 +215,17 @@ export default function EmployeeCrud({ hideHeader = false }) {
                   <td style={{ padding: '1rem 1.25rem', color: '#9ca3af', fontSize: '0.875rem' }}>EMP{String(emp.id).padStart(3, '0')}</td>
                   <td style={{ padding: '1rem 1.25rem' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                      <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: '#fff1f1', color: '#CC1111', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: '0.875rem', flexShrink: 0 }}>
-                        {emp.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
-                      </div>
+                      {emp.photo_url ? (
+                        <img 
+                          src={`http://localhost:5000${emp.photo_url}`} 
+                          alt={emp.name} 
+                          style={{ width: '36px', height: '36px', borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} 
+                        />
+                      ) : (
+                        <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: '#fff1f1', color: '#CC1111', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: '0.875rem', flexShrink: 0 }}>
+                          {emp.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
+                        </div>
+                      )}
                       <span style={{ fontWeight: 700 }}>{emp.name}</span>
                     </div>
                   </td>
@@ -208,6 +241,10 @@ export default function EmployeeCrud({ hideHeader = false }) {
                   </td>
                   <td style={{ padding: '1rem 1.25rem' }}>
                     <div style={{ display: 'flex', gap: '0.5rem' }}>
+                      <button onClick={() => setShowBarcode(emp)}
+                        style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', padding: '0.35rem 0.75rem', border: '1.5px solid #e5e7eb', borderRadius: '6px', background: 'white', cursor: 'pointer', fontSize: '0.78rem', fontWeight: 600, fontFamily: 'inherit' }}>
+                        <BarcodeIcon size={13} /> Barcode
+                      </button>
                       <button onClick={() => openEditModal(emp)}
                         style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', padding: '0.35rem 0.75rem', border: '1.5px solid #e5e7eb', borderRadius: '6px', background: 'white', cursor: 'pointer', fontSize: '0.78rem', fontWeight: 600, fontFamily: 'inherit' }}>
                         <Edit size={13} /> Edit
@@ -242,6 +279,26 @@ export default function EmployeeCrud({ hideHeader = false }) {
             </div>
             <div className="modal-body">
               <form onSubmit={handleSubmit}>
+                <div style={{ display: 'flex', gap: '1.5rem', marginBottom: '1.5rem', alignItems: 'center' }}>
+                  <div style={{ position: 'relative' }}>
+                    <div style={{ width: '100px', height: '100px', borderRadius: '12px', background: '#f3f4f6', border: '2px dashed #d1d5db', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+                      {photoPreview ? (
+                        <img src={photoPreview} alt="Preview" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      ) : (
+                        <Camera size={32} style={{ color: '#9ca3af' }} />
+                      )}
+                    </div>
+                    <label htmlFor="photo-upload" style={{ position: 'absolute', bottom: '-8px', right: '-8px', background: '#CC1111', color: 'white', width: '30px', height: '30px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', boxShadow: '0 2px 6px rgba(0,0,0,0.2)' }}>
+                      <Plus size={16} />
+                      <input id="photo-upload" type="file" accept="image/*" onChange={handlePhotoChange} style={{ display: 'none' }} />
+                    </label>
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <h4 style={{ margin: 0, fontSize: '1rem', color: '#111827' }}>Employee Photo</h4>
+                    <p style={{ margin: '0.25rem 0 0', fontSize: '0.75rem', color: '#6b7280' }}>Upload a clear headshot. JPG/PNG supported.</p>
+                  </div>
+                </div>
+
                 <div style={{ marginBottom: '1.1rem' }}>
                   <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: '#374151', marginBottom: '0.4rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Full Name *</label>
                   <input type="text" required className="input-base" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="e.g. Juan Dela Cruz" />
@@ -310,6 +367,25 @@ export default function EmployeeCrud({ hideHeader = false }) {
                   </button>
                 </div>
               </form>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* ── BARCODE MODAL ── */}
+      {showBarcode && (
+        <div className="modal-overlay" onClick={() => setShowBarcode(null)}>
+          <div className="modal-box" style={{ maxWidth: '400px', textAlign: 'center' }}>
+            <div className="modal-header">
+              <h3 style={{ color: 'white', margin: 0 }}>Employee Barcode</h3>
+              <button onClick={() => setShowBarcode(null)} style={{ background: 'none', border: 'none', color: 'white', cursor: 'pointer' }}><X size={20}/></button>
+            </div>
+            <div className="modal-body" style={{ padding: '2rem' }}>
+              <div style={{ fontWeight: 800, fontSize: '1.2rem', marginBottom: '1rem', color: '#CC1111' }}>{showBarcode.name}</div>
+              <div style={{ background: 'white', padding: '1rem', borderRadius: '8px', border: '1px solid #e5e7eb', display: 'inline-block' }}>
+                <Barcode value={showBarcode.barcode || `EMP${String(showBarcode.id).padStart(4, '0')}`} height={60} width={1.5} fontSize={14} />
+              </div>
+              <p style={{ marginTop: '1.5rem', color: '#6b7280', fontSize: '0.85rem' }}>Scan this code at the employee portal for check-in/out.</p>
+              <button onClick={() => window.print()} style={{ marginTop: '1rem', background: '#CC1111', color: 'white', border: 'none', borderRadius: '8px', padding: '0.6rem 1.2rem', fontWeight: 600, cursor: 'pointer' }}>Print Barcode</button>
             </div>
           </div>
         </div>
