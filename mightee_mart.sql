@@ -57,16 +57,17 @@ CREATE TABLE `attendance` (
   `status` enum('present','late','absent') DEFAULT 'present',
   `productivity_score` int(11) DEFAULT 0,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
-  `overtime_hours` decimal(5,2) DEFAULT 0.00
+  `overtime_hours` decimal(5,2) DEFAULT 0.00,
+  `captured_photo` varchar(255) DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 --
 -- Dumping data for table `attendance`
 --
 
-INSERT INTO `attendance` (`id`, `employee_id`, `date`, `check_in`, `check_out`, `hours_worked`, `status`, `productivity_score`, `created_at`, `overtime_hours`) VALUES
-(8, 4, '2026-04-11', '2026-04-10 23:13:25', '2026-04-11 01:13:29', 2.00, 'present', 85, '2026-04-10 23:13:25', 0.00),
-(9, 6, '2026-04-11', '2026-04-10 23:21:59', '2026-04-10 23:22:01', 0.00, 'present', 85, '2026-04-10 23:21:59', 0.00);
+INSERT INTO `attendance` (`id`, `employee_id`, `date`, `check_in`, `check_out`, `hours_worked`, `status`, `productivity_score`, `created_at`, `overtime_hours`, `captured_photo`) VALUES
+(8, 4, '2026-04-11', '2026-04-10 23:13:25', '2026-04-11 01:13:29', 2.00, 'present', 85, '2026-04-10 23:13:25', 0.00, NULL),
+(9, 6, '2026-04-11', '2026-04-10 23:21:59', '2026-04-10 23:22:01', 0.00, 'present', 85, '2026-04-10 23:21:59', 0.00, NULL);
 
 -- --------------------------------------------------------
 
@@ -79,7 +80,8 @@ CREATE TABLE `employees` (
   `name` varchar(255) NOT NULL,
   `role` varchar(255) NOT NULL,
   `department` varchar(255) NOT NULL,
-  `pin_code` varchar(10) DEFAULT NULL,
+  `barcode` varchar(50) DEFAULT NULL,
+  `photo_url` varchar(255) DEFAULT NULL,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
   `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
@@ -88,9 +90,9 @@ CREATE TABLE `employees` (
 -- Dumping data for table `employees`
 --
 
-INSERT INTO `employees` (`id`, `name`, `role`, `department`, `pin_code`, `created_at`, `updated_at`) VALUES
-(4, 'Benedict Aquino', 'Cashier', 'Sales', NULL, '2026-04-10 13:20:52', '2026-04-10 23:08:28'),
-(6, 'Sandree Antang', 'Restocker', 'Inventory', NULL, '2026-04-10 23:21:47', '2026-04-10 23:21:47');
+INSERT INTO `employees` (`id`, `name`, `role`, `department`, `barcode`, `photo_url`, `created_at`, `updated_at`) VALUES
+(4, 'Benedict Aquino', 'Cashier', 'Sales', 'EMP0004', NULL, '2026-04-10 13:20:52', '2026-04-10 23:08:28'),
+(6, 'Sandree Antang', 'Restocker', 'Inventory', 'EMP0006', NULL, '2026-04-10 23:21:47', '2026-04-10 23:21:47');
 
 -- --------------------------------------------------------
 
